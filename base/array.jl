@@ -780,7 +780,7 @@ for f in (:+, :-, :div, :mod, :&, :|, :$)
         end
     end
 end
-for f in (:+, :-, :.*, :./, :.%, :div, :mod, :rem, :&, :|, :$)
+for f in (:.+, :.-, :.*, :./, :.%, :div, :mod, :rem, :&, :|, :$)
     @eval begin
         function ($f){T}(A::Number, B::StridedArray{T})
             F = similar(B, promote_array_type(typeof(A),T))
@@ -800,7 +800,7 @@ for f in (:+, :-, :.*, :./, :.%, :div, :mod, :rem, :&, :|, :$)
 end
 
 # functions that should give an Int result for Bool arrays
-for f in (:+, :-)
+for f in (:.+, :.-)
     @eval begin
         function ($f)(x::Bool, y::StridedArray{Bool})
             reshape([ ($f)(x, y[i]) for i=1:length(y) ], size(y))
@@ -808,6 +808,10 @@ for f in (:+, :-)
         function ($f)(x::StridedArray{Bool}, y::Bool)
             reshape([ ($f)(x[i], y) for i=1:length(x) ], size(x))
         end
+    end
+end
+for f in (:+, :-)
+    @eval begin
         function ($f)(x::StridedArray{Bool}, y::StridedArray{Bool})
             shp = promote_shape(size(x),size(y))
             reshape([ ($f)(x[i], y[i]) for i=1:length(x) ], shp)

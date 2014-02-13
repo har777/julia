@@ -890,6 +890,10 @@ for f in (:+, :-)
             shp = promote_shape(size(A),size(B))
             reshape(Int[ ($f)(A[i], B[i]) for i=1:length(A) ], shp)
         end
+    end
+end
+for f in (:.+, :.-)
+    @eval begin
         function ($f)(B::BitArray, x::Bool)
             reshape([ ($f)(B[i], x) for i = 1:length(B) ], size(B))
         end
