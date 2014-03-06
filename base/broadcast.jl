@@ -64,15 +64,19 @@ end
 # using function f, output B, and inputs As...
 # B must have already been set to the appropriate size.
 function gen_broadcast_body(nd::Int, narrays::Int, f::Function)
-    checkshape = Expr(:call, check_broadcast_shape, :(size(B)), [symbol("A_"*string(i)) for i = 1:narrays]...)
     F = Expr(:quote, f)
     quote
         @assert ndims(B) == $nd
-        $checkshape
-        @nloops $nd i B d->(@nexprs $narrays k->(j_d_k = size(A_k, d) == 1 ? 1 : i_d)) begin
-            @nexprs $narrays k->(@inbounds v_k = @nref $nd A_k d->j_d_k)
-            @inbounds (@nref $nd B i) = (@ncall $narrays $F v)
-        end
+        @ncall $narrays check_broadcast_shape size(B) k->A_k
+        @nexprs 1 d->(@nexprs $narrays k->(index_k_0 = index_k_{$nd} = start(A_k)))
+        @nexprs $nd d->(@nexprs $narrays k->(skip_k_d = size(A_k, d) == 1))
+        @nloops($nd, i, B,
+            d->(@nexprs $narrays k->(index_k_{d-1} = index_k_d)),           # pre
+            d->(@nexprs $narrays k->(skip_k_d || (index_k_d = index_k_0))), # post
+            begin # body
+                @nexprs $narrays k->(@inbounds (v_k, index_k_0) = next(A_k, index_k_0))
+                @inbounds (@nref $nd B i) = (@ncall $narrays $F v)
+            end)
     end
 end
 
@@ -180,7 +184,7 @@ type_pow(T,S) = promote_type(T,S)
 type_pow{S<:Integer}(::Type{Bool},::Type{S}) = Bool
 type_pow{S}(T,::Type{Rational{S}}) = type_pow(T, type_div(S, S))
 
-function .^(A::AbstractArray, B::AbstractArray) 
+function .^(A::AbstractArray, B::AbstractArray)
     broadcast!(^, Array(type_pow(eltype(A), eltype(B)), broadcast_shape(A, B)), A, B)
 end
 
@@ -196,9 +200,7 @@ function dumpbitcache(Bc::Vector{Uint64}, bind::Int, C::Vector{Bool})
         u = uint64(1)
         c = uint64(0)
         for j = 1:64
-            if C[ind]
-                c |= u
-            end
+            C[ind] && (c |= u)
             ind += 1
             u <<= 1
         end
@@ -208,25 +210,29 @@ function dumpbitcache(Bc::Vector{Uint64}, bind::Int, C::Vector{Bool})
 end
 
 function gen_bitbroadcast_body(nd::Int, narrays::Int, f::Function)
-    checkshape = Expr(:call, check_broadcast_shape, :(size(B)), [symbol("A_"*string(i)) for i = 1:narrays]...)
     F = Expr(:quote, f)
     quote
         @assert ndims(B) == $nd
-        $checkshape
+        @ncall $narrays check_broadcast_shape size(B) k->A_k
         C = Array(Bool, bitcache_size)
         Bc = B.chunks
         ind = 1
         cind = 1
-        @nloops $nd i B d->(@nexprs $narrays k->(j_d_k = size(A_k, d) == 1 ? 1 : i_d)) begin
-            @nexprs $narrays k->(@inbounds v_k = @nref $nd A_k d->j_d_k)
-            @inbounds C[ind] = (@ncall $narrays $F v)
-            ind += 1
-            if ind > bitcache_size
-                dumpbitcache(Bc, cind, C)
-                cind += bitcache_chunks
-                ind = 1
-            end
-        end
+        @nexprs 1 d->(@nexprs $narrays k->(index_k_0 = index_k_{$nd} = start(A_k)))
+        @nexprs $nd d->(@nexprs $narrays k->(skip_k_d = size(A_k, d) == 1))
+        @nloops($nd, i, B,
+            d->(@nexprs $narrays k->(index_k_{d-1} = index_k_d)),           # pre
+            d->(@nexprs $narrays k->(skip_k_d || (index_k_d = index_k_0))), # post
+            begin # body
+                @nexprs $narrays k->(@inbounds (v_k, index_k_0) = next(A_k, index_k_0))
+                @inbounds C[ind] = (@ncall $narrays $F v)
+                ind += 1
+                if ind > bitcache_size
+                    dumpbitcache(Bc, cind, C)
+                    cind += bitcache_chunks
+                    ind = 1
+                end
+            end)
         if ind > 1
             @inbounds C[ind:bitcache_size] = false
             dumpbitcache(Bc, cind, C)
