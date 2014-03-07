@@ -283,13 +283,12 @@ end
 bool(x::AbstractArray{Bool}) = x
 bool(x::AbstractArray) = copy!(similar(x,Bool), x)
 
-for (f,t) in ((:float16,    Float16),
+for (f,T) in ((:float16,    Float16),
               (:float32,    Float32),
               (:float64,    Float64),
               (:complex64,  Complex64),
               (:complex128, Complex128))
-    @eval ($f)(x::AbstractArray{$t}) = x
-    @eval ($f)(x::AbstractArray) = copy!(similar(x,$t), x)
+    @eval ($f)(x::AbstractArray) = convert(typeof(similar(x,$T)), x)
 end
 
 float{T<:FloatingPoint}(x::AbstractArray{T}) = x
